@@ -1,0 +1,381 @@
+ // Sabre response processing
+
+    $tracking_id_counter = uniqid();
+    $flight_key_counter = 0;
+
+    $scheduleDescs = $response_data['groupedItineraryResponse']['scheduleDescs'] ?? [];
+$scheduleData = [];
+foreach ($scheduleDescs as $schedule) {
+    $scheduleData[$schedule['id']] = $schedule;
+}
+
+// Prepare leg descriptions
+$legsData_temp = $response_data['groupedItineraryResponse']['legDescs'] ?? [];
+$legsData = [];
+foreach ($legsData_temp as $row) {
+    $legsData[$row['id']] = $row;
+
+    foreach ($row['schedules'] as $schedule) {
+        $ref = $schedule['ref'];
+        if (isset($scheduleData[$ref])) {
+            $legsData[$row['id']]['schedules'][$ref] = $scheduleData[$ref];
+        }
+    }
+}
+
+// Prepare fare component descriptions
+$fareComponentDescs = $response_data['groupedItineraryResponse']['fareComponentDescs'] ?? [];
+$fareComponentsData = [];
+foreach ($fareComponentDescs as $fareComponent) {
+    $fareComponentsData[$fareComponent['id']] = $fareComponent;
+}
+
+$baggageAllowanceDescs = $response_data['groupedItineraryResponse']['baggageAllowanceDescs'] ?? [];
+$baggageAllowanceData = [];
+foreach ($baggageAllowanceDescs as $baggageAllowance) {
+    $baggageAllowanceData[$baggageAllowance['id']] = $baggageAllowance;
+}
+
+// Prepare itinerary groups
+$itineraryGroups = $response_data['groupedItineraryResponse']['itineraryGroups'] ?? [];
+
+$itineraries = [];
+
+foreach ($itineraryGroups as $group) {
+
+    $groupDescription = $group['groupDescription'] ?? null;
+
+    // If groupDescription exists, add legDescriptions
+    $legDescriptions = [];
+    if ($groupDescription && isset($groupDescription['legDescriptions'])) {
+        foreach ($groupDescription['legDescriptions'] as $legDesc) {
+            $legDescriptions[] = [
+                'departureDate' => $legDesc['departureDate'] ?? 'N/A',
+                'departureLocation' => $legDesc['departureLocation'] ?? 'N/A',
+                'arrivalLocation' => $legDesc['arrivalLocation'] ?? 'N/A',
+            ];
+        }
+    }
+
+
+    foreach ($group['itineraries'] as $itinerary) {
+        foreach ($itinerary['legs'] as &$leg) {
+            if (isset($legsData[$leg['ref']])) {
+                $leg = $legsData[$leg['ref']];
+            } else {
+                error_log("Leg reference not found: " . $leg['ref']);
+                continue;
+            }
+        }
+
+        foreach ($itinerary['pricingInformation'] as &$pricingInfo) {
+            foreach ($pricingInfo['fare']['passengerInfoList'] as &$passengerInfo) {
+                $newFareComponents = [];
+
+                foreach ($passengerInfo['passengerInfo']['fareComponents'] as $fareComponent) {
+                    $ref = $fareComponent['ref'];
+
+                    if (isset($fareComponentsData[$ref])) {
+                        $newFareComponents[$ref] = array_merge(
+                            $fareComponentsData[$ref], 
+                            array_diff_key($fareComponent, ['ref' => ''])
+                        );
+                    } else {
+                        error_log("Fare component reference not found: " . $ref);
+                        $newFareComponents[$ref] = ['ref' => $ref];
+                    }
+                }
+
+                // Inject baggage allowance data
+                foreach ($passengerInfo['passengerInfo']['baggageInformation'] as &$baggageInfo) {
+
+                    $Segments = [];
+
+                    // Get the list of baggage segment IDs to match
+                    $baggageSegmentIds = array_column($baggageInfo['segments'], 'id');  // Extract IDs from baggage segments
+
+                    // Iterate over fareComponents segments and match based on segment ID
+                    foreach ($passengerInfo['passengerInfo']['fareComponents'] as $fareComponent) {
+                        foreach ($fareComponent['segments'] as $fareSegmentIndex => $fareSegment) {
+                            // Check if the segment ID exists in baggageSegmentIds
+                            if (in_array($fareSegmentIndex, $baggageSegmentIds)) {
+                                // Add only the matched segment data
+                                $Segments[] = [
+                                    "bookingCode" => $fareSegment['segment']['bookingCode'] ?? null,
+                                    "cabinCode" => $fareSegment['segment']['cabinCode'] ?? null,
+                                    "mealCode" => $fareSegment['segment']['mealCode'] ?? null,
+                                    "seatsAvailable" => $fareSegment['segment']['seatsAvailable'] ?? null
+                                ];
+                            }
+                        }
+                    }
+
+                    // Now directly replace 'segments' with 'Segments'
+                    $baggageInfo['Segments'] = $Segments;
+
+                    // Remove the original 'segments' key since it's no longer needed
+                    unset($baggageInfo['segments']);
+
+                    // Retain allowance code as is
+                    $allowanceRef = $baggageInfo['allowance']['ref'] ?? null;
+
+                    if ($allowanceRef && isset($baggageAllowanceData[$allowanceRef])) {
+                        $baggageInfo['allowance'] = $baggageAllowanceData[$allowanceRef];  // Retain allowance
+                    }
+
+                    $chargeRef = $baggageInfo['charge']['ref'] ?? null;
+                    if ($chargeRef && isset($baggageAllowanceData[$chargeRef])) {
+                        $baggageInfo['charge'] = $baggageAllowanceData[$chargeRef];  // Retain charge
+                    }
+                }
+                $passengerInfo['passengerInfo']['fareComponents'] = $newFareComponents;
+            }
+        }
+
+        // Add legDescriptions to each itinerary before appending
+        $itinerary = array_merge(['legDescriptions' => $legDescriptions], $itinerary);  // Merge legDescriptions at the top
+        
+        $itineraries[] = $itinerary;
+    }
+}
+
+
+   
+    if (empty($itineraries)) {
+        echo json_encode([
+            "status" => "error",
+            "message" => "No itineraries available for processing"
+        ]);
+        exit;
+    }
+
+    $final_data = [
+        "status" => "success",
+        "tracking_id" => $tracking_id_counter,
+        "total_fight" => count($itineraries),
+        "currency" => "BDT",
+        "resources" => [
+            "base_url" => [
+                "carrier" => "https://gtrs-airlineimages.s3.ap-southeast-1.amazonaws.com/icon",
+                "aircraft" => "https://gtrs-airlineimages.s3.ap-southeast-1.amazonaws.com/aircraft"
+            ]
+        ],
+        "data" => []
+    ];
+    
+    foreach ($itineraries as $itinerary) {
+        $flight_group = [];
+        $current_flight_key = "F1SE00011-" . $flight_key_counter;  
+        $flight_key_counter++;
+        $air_segment_counter = 0;  
+    
+        foreach ($itinerary['legs'] as $legsIndex => $legs) {
+            // Make sure we're accessing the correct legDescription
+            $legDescription = $legDescriptions[$legsIndex] ?? null;
+
+            if ($legDescription === null) {
+                error_log("Leg description missing for index: " . $legsIndex);
+                continue;  // Skip this leg if no matching legDescription is found
+            }
+            
+            $flight_group[] = [
+                "group" => 1,
+                "flight_key" => $current_flight_key,
+                "no_of_stops_title" => count($legs['schedules'] ?? []) . " Stop Flight",
+                "no_of_stops" => count($legs['schedules'] ?? []),
+                "flight_time" => "PT3H40M",  
+                "transit_time" => "PT6H30M",  
+                "routes" => []
+            ];
+    
+            foreach ($legs['schedules'] ?? [] as $leg) {
+                if (!isset($leg['departure']) || !isset($leg['arrival'])) {
+                    error_log("Incomplete schedule data for leg: " . print_r($leg, true));
+                    continue;
+                }
+    
+                $bookingClassIndex = 0;  
+                $bookingClassSegments = [];  
+    
+                // Extract booking class data from fareComponents
+                foreach ($itinerary['pricingInformation'] as $pricingInfo) {
+                    foreach ($pricingInfo['fare']['passengerInfoList'] as $passengerInfo) {
+                        foreach ($passengerInfo['passengerInfo']['fareComponents'] as $fareComponent) {
+                            $fareBasisCode = $fareComponent['fareBasisCode'];
+                            foreach ($fareComponent['segments'] as $segment) {
+                                $segmentData = $segment['segment'];
+                                $bookingClassSegments[] = $segmentData;  // Store booking class segment data
+                            }
+                        }
+                    }
+                }
+    
+                // Get booking class data for the current segment
+                $segmentData = $bookingClassSegments[$bookingClassIndex] ?? null;
+    
+                if ($segmentData) {
+                    $bookingCode = $segmentData['bookingCode'] ?? null;
+                    $cabinCode = $segmentData['cabinCode'] ?? null;
+                    $mealCode = $segmentData['mealCode'] ?? null;
+                    $seatsAvailable = $segmentData['seatsAvailable'] ?? null;
+    
+                    $cabinClassMapping = [
+                        'Y' => 'Economy',
+                        'W' => 'Premium Economy',
+                        'C' => 'Business',
+                        'F' => 'First'
+                    ];
+    
+                    $cabin_class = $cabinClassMapping[$cabinCode] ?? 'Unknown';
+    
+                    $booking_class = [
+                        'cabin_class' => $cabin_class,
+                        'cabin_code' => $cabinCode,
+                        'booking_code' => $bookingCode,
+                        'meal_code' => $mealCode,
+                        'seat_available' => $seatsAvailable,
+                    ];
+                } else {
+                    $booking_class = null;  // If no data found, set null
+                }
+    
+                // Continue with baggage data and other logic
+                $baggages = [
+                    "checked" => [],
+                    "carry_on" => []
+                ];
+    
+                foreach ($itinerary['pricingInformation'] as $pricingInfo) {
+                    foreach ($pricingInfo['fare']['passengerInfoList'] as $passengerInfo) {
+                        $passengerType = $passengerInfo['passengerInfo']['passengerType'];
+                        foreach ($passengerInfo['passengerInfo']['baggageInformation'] as $baggageInfo) {
+                            $baggageType = $baggageInfo['provisionType'] === 'A' ? 'checked' : ($baggageInfo['provisionType'] === 'B' ? 'carry_on' : null);
+    
+                            if ($baggageType) {
+                                $baggages[$baggageType][$passengerType] = [
+                                    "ptc_title" => $passengerType === 'ADT' ? 'Adult' : ($passengerType === 'CNN' ? 'Child' : 'Infant without a Seat'),
+                                    "passenger_type" => $passengerType,
+                                    "baggage_type" => $baggageType,
+                                    "pieceCount" => $baggageInfo['allowance']['pieceCount'] ?? null,
+                                    "weight" => $baggageInfo['allowance']['weight'] ?? null,
+                                    "unit" => isset($baggageInfo['allowance']['weight']) ? ($baggageInfo['allowance']['unit'] ?? 'kg') : 'pieces',
+                                    "title" => isset($baggageInfo['allowance']['weight'])
+                                        ? ($baggageInfo['allowance']['weight'] . " " . ($baggageInfo['allowance']['unit'] ?? 'kg'))
+                                        : (isset($baggageInfo['allowance']['pieceCount'])
+                                        ? ($baggageInfo['allowance']['pieceCount'] . " pieces") : 'N/A')
+                                ];
+                            }
+                        }
+                    }
+                }
+
+                $origin = $legDescription['departureLocation'] ?? 'N/A';
+        $destination = $legDescription['arrivalLocation'] ?? 'N/A';
+        $departure_date = $legDescription['departureDate'] ?? 'N/A';
+
+       
+    
+                // Build the flight route data
+                $flight_group[count($flight_group) - 1]['routes'][] = [
+                    "air_segment_key" => "0-" . $air_segment_counter,
+                    "fareBasisCode" => $fareBasisCode,
+                    "origin" => $origin,
+                    "departure_date" => $departure_date,
+                    "departure_time" => $leg['departure']['time'] ?? 'N/A',
+                    "origin_terminal" => $leg['departure']['terminal'] ?? 'N/A',
+                    "origin_airport" => [
+                        "name" => $leg['departure']['airport'] ?? 'N/A',
+                        "city" => $leg['departure']['city'] ?? 'N/A',
+                        "country" => $leg['departure']['country'] ?? 'N/A',
+                        "timezone" => "Asia/Dhaka"
+                    ],
+                    "destination" => $destination,
+                    "arrival_time" => $leg['arrival']['time'] ?? 'N/A',
+                    "destination_terminal" => $leg['arrival']['terminal'] ?? null,
+                    "destination_airport" => [
+                        "name" => $leg['arrival']['airport'] ?? 'N/A',
+                        "city" => $leg['arrival']['city'] ?? 'N/A',
+                        "country" => $leg['arrival']['country'] ?? 'N/A',
+                        "timezone" => "Asia/Bangkok"
+                    ],
+                    "aircraft" => [
+                        "code" => $leg['carrier']['equipment']['code'] ?? 'N/A',
+                        "name" => $leg['carrier']['equipment']['code'] ?? 'N/A',
+                        "picture" => ($leg['carrier']['equipment']['code'] ?? 'default') . ".png"
+                    ],
+                    "operating" => [
+                        "carrier" => $leg['carrier']['operating'] ?? 'N/A',
+                        "carrier_name" => "Thai Airways",
+                        "carrier_logo" => ($leg['carrier']['operating'] ?? 'N/A') . ".png",
+                        "flight_number" => $leg['carrier']['operatingFlightNumber'] ?? 'N/A'
+                    ],
+                    "marketing" => [
+                        "carrier" => $leg['carrier']['marketing'] ?? 'N/A',
+                        "carrier_name" => "Thai Airways",
+                        "carrier_logo" => ($leg['carrier']['marketing'] ?? 'N/A') . ".png",
+                        "flight_number" => $leg['carrier']['marketingFlightNumber'] ?? 'N/A'
+                    ],
+                    "booking_class" => $booking_class,  // Assign booking class
+                    "baggages" => $baggages
+                ];
+        
+                $bookingClassIndex++;  // Increment after each leg
+                $air_segment_counter++;  
+            }
+        }
+    
+        $price_info = $itinerary['pricingInformation'][0]['fare']['totalFare'];
+        $price = [
+            "currency" => $price_info['currency'] ?? 'BDT',
+            "total" => $price_info['totalPrice'] ?? 0,
+            "base_fare" => ($price_info['totalPrice'] - $price_info['totalTaxAmount']) ?? 0,
+            "tax" => $price_info['totalTaxAmount'] ?? 0
+        ];
+    
+        $price_breakdown = [];
+        foreach ($itinerary['pricingInformation'][0]['fare']['passengerInfoList'] as $index => $passengerInfo) {
+            $passengerType = $passengerInfo['passengerInfo']['passengerType'];
+            $passengerTotalFare = $passengerInfo['passengerInfo']['passengerTotalFare'];
+            $currencyExchangeRate = $passengerInfo['passengerInfo']['currencyConversion']['exchangeRateUsed'];
+            $currencyFrom = $passengerInfo['passengerInfo']['currencyConversion']['from'];
+    
+            $price_breakdown[] = [
+                "passenger_id" => $index,
+                "passenger_type" => $passengerType,
+                "primary_ptc" => $passengerType,
+                "ptc_title" => $passengerType === 'ADT' ? 'Adult' : ($passengerType === 'CNN' ? 'Child' : 'Infant'),
+                "passenger_total" => $passengerInfo['passengerInfo']['passengerNumber'],
+                "currency" => $passengerTotalFare['currency'] ?? 'BDT',
+                "total" => number_format($passengerTotalFare['totalFare'], 2) ?? 0,
+                "base_fare" => number_format(($passengerTotalFare['totalFare']-$passengerTotalFare['totalTaxAmount']), 2) ?? 0,
+                "tax" => number_format($passengerTotalFare['totalTaxAmount'], 2) ?? 0,
+                "view_gross" => [
+                    "currency" => $currencyFrom,
+                    "total" => number_format($passengerTotalFare['totalFare'] / $currencyExchangeRate, 2),
+                    "base_fare" => number_format($passengerTotalFare['baseFareAmount'], 2),
+                    "tax" => number_format($passengerTotalFare['totalTaxAmount'] / $currencyExchangeRate, 2)
+                ]
+            ];
+        }
+    
+        $final_data['data'][] = [
+            "tracking_id" => $tracking_id_counter,
+            "flight_key" => $current_flight_key,
+            "journey_type" => $isMultiCity ? "MultiCity" : ($isRoundTrip ? "RoundTrip" : "OneWay"),
+            "result_type" => "general",
+            "get_branded_fare" => "no",
+            "hold_possible" => "yes",
+            "supplier_title" => "Sabre OneAgent",
+            "supplier_code" => "sabre",
+            "supplier_uid" => $current_flight_key,
+            "supplier_partner_code" => "sabre-1-" . $flight_key_counter,
+            "info_message" => null,
+            "flight_group" => $flight_group,
+            "price" => array_merge($price, ["price_breakdown" => $price_breakdown])
+        ];
+    
+        $tracking_id_counter++;
+    }
+    
+
+    $json = json_encode($final_data, JSON_PRETTY_PRINT);

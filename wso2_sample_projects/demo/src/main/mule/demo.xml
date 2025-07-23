@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+  
+<flow name="setSabrePropertiesFlow">
+    <set-variable variableName="baseApiUrl" value="https://api.cert.platform.sabre.com" doc:name="Base API URL"/>
+    <set-variable variableName="username" value="596420" doc:name="Username"/>
+    <set-variable variableName="pseudoCityCode" value="AO0L" doc:name="PseudoCityCode"/>
+    <set-variable variableName="clientDomain" value="AA" doc:name="Client Domain"/>
+    <set-variable variableName="password" value="ak19tstc" doc:name="Password"/>
+    <set-variable variableName="username" value="#['V1:' ++ payload.username ++ ':' ++ payload.PseudoCityCode ++ ':' ++ payload.client_domain]" doc:name="Set Username"/>
+</flow>
+</mule>

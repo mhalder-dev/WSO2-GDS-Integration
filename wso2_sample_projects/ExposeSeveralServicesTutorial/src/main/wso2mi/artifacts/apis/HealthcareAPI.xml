@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<api context="/healthcare" name="HealthcareAPI" xmlns="http://ws.apache.org/ns/synapse">
+    <resource methods="POST" uri-template="/categories/{category}/reserve">
+        <inSequence>
+            <property name="uri.var.hospital	" scope="default" type="STRING" expression="json-eval($.hospital_id)	"/>
+            <property name="card_number" scope="default" type="STRING" expression="json-eval($.cardNo)	" description="Get Card Number	"/>
+            <call>
+                <endpoint key="HospitalServicesEP"/>
+            </call>
+            <property name="uri.var.appointment_id	" scope="default" type="STRING" expression="json-eval($.appointmentNumber)	" description="Get Appointment Number	"/>
+            <property name="doctor_details" scope="default" type="STRING" expression="json-eval($.doctor)	" description="Get Doctor Details	"/>
+            <property name="patient_details" scope="default" type="STRING" expression="json-eval($.patient)	" description="Get Patient Details	"/>
+            <call>
+                <endpoint key="ChannelingFeeEP"/>
+            </call>
+            <property name="actual_fee	" scope="default" type="STRING" expression="json-eval($.actualFee)	" description="Get Actual Fee	"/>
+            <payloadFactory media-type="json" template-type="default">
+                <format>{"appointmentNumber":$1, "doctor":$2, "patient":$3, "fee":$4, "confirmed":"false", "card_number":"$5"}
+                </format>
+                <args>
+                    <arg expression="$ctx:uri.var.appointment_id" evaluator="xml"/>
+                    <arg expression="$ctx:doctor_details" evaluator="xml"/>
+                    <arg expression="$ctx:patient_details" evaluator="xml"/>
+                    <arg expression="$ctx:actual_fee" evaluator="xml"/>
+                    <arg expression="$ctx:card_number" evaluator="xml"/>
+                </args>
+            </payloadFactory>
+            <call>
+                <endpoint key="SettlePaymentEP"/>
+            </call>
+            <respond/>
+        </inSequence>
+        <faultSequence>
+        </faultSequence>
+    </resource>
+</api>

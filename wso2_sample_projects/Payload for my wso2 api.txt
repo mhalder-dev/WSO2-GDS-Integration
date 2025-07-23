@@ -1,0 +1,8 @@
+{
+  "tripType": "oneway", 
+  "departureDate": "2025-02-28",
+  "returnDate": "",
+  "originLocation": "DAC",
+  "destinationLocation": "CXB",
+  "segments": []
+}

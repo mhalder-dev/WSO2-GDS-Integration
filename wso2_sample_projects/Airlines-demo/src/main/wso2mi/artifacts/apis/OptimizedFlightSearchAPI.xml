@@ -1,0 +1,105 @@
+<api xmlns="http://ws.apache.org/ns/synapse" name="OptimizedFlightSearchAPI" context="/optimizedFlightSearch">
+    <resource methods="POST" uri-template="/search">
+        <inSequence>
+            <property name="uri.var.apikey" value="S78784472694126942636"/>
+            <property name="uri.var.secretecode" value="i8JJ9VYJdMzUDTOk7wj3DnZQEzmUrGWxbUf"/>
+            <property name="uri.var.contentType" value="application/json"/>
+            <property name="uri.var.acceptType" value="application/json"/>
+            <property name="uri.var.endpointUrl" value="https://serviceapi.innotraveltech.com/flight/search"/>
+            <payloadFactory media-type="json">
+                <format>{
+                    "journey_type": "OneWay",
+                    "segment": [{
+                        "departure_airport_type": "AIRPORT",
+                        "departure_airport": "DAC",
+                        "arrival_airport_type": "AIRPORT",
+                        "arrival_airport": "CGP",
+                        "departure_date": "2025-03-10"
+                    }],
+                    "travelers_adult": 2,
+                    "travelers_child": 0,
+                    "travelers_child_age": [],
+                    "travelers_infants": 0,
+                    "travelers_infants_age": [],
+                    "preferred_carrier": [],
+                    "non_stop_flight": "any",
+                    "baggage_option": "any",
+                    "booking_class": "Economy",
+                    "supplier_uid": "all",
+                    "partner_id": "",
+                    "language": "en",
+                    "short_ref": "12121212121",
+                    "team_profile": [{
+                        "member_id": "1",
+                        "pax_type": "ADT"
+                    }, {
+                        "member_id": "2",
+                        "pax_type": "CNN"
+                    }, {
+                        "member_id": "3",
+                        "pax_type": "INF"
+                    }]
+                }</format>
+                <args/>
+            </payloadFactory>
+            <header name="Accept" scope="transport" expression="$ctx:uri.var.acceptType"/>
+            <header name="Content-Type" scope="transport" expression="$ctx:uri.var.contentType"/>
+            <header name="apikey" scope="transport" expression="$ctx:uri.var.apikey"/>
+            <header name="secretecode" scope="transport" expression="$ctx:uri.var.secretecode"/>
+            <call>
+                <endpoint>
+                    <http method="post" uri-template="{uri.var.endpointUrl}"/>
+                </endpoint>
+            </call>
+            <property name="RESPONSE" expression="json-eval($)" scope="default" type="STRING"/>
+            <script language="js">
+                <![CDATA[
+                var response = mc.getProperty("RESPONSE");
+                var data = JSON.parse(response).data;
+                var routesInfo = [];
+                for (var i = 0; i < data.length; i++) {
+                    var flightGroups = data[i].flight_group;
+                    for (var j = 0; j < flightGroups.length; j++) {
+                        var routes = flightGroups[j].routes;
+                        for (var k = 0; k < routes.length; k++) {
+                            var route = routes[k];
+                            var routeDetails = {
+                                tracking_id: data[i].tracking_id,
+                                flight_key: data[i].flight_key,
+                                supplier: data[i].supplier_title,
+                                origin: route.origin,
+                                origin_airport: route.origin_airport.name,
+                                origin_city: route.origin_airport.city,
+                                departure_time: route.departure_time,
+                                destination: route.destination,
+                                destination_airport: route.destination_airport.name,
+                                destination_city: route.destination_airport.city,
+                                arrival_time: route.arrival_time,
+                                flight_date: route.flight_date,
+                                flight_time: route.flight_time,
+                                aircraft_code: route.aircraft.code,
+                                aircraft_name: route.aircraft.name,
+                                operating_carrier: route.operating.carrier,
+                                operating_flight_number: route.operating.flight_number,
+                                marketing_carrier: route.marketing.carrier,
+                                booking_class: route.booking_class.booking_code,
+                                checked_baggage: route.baggages.checked.ADT.title,
+                                carry_on: route.baggages.carry_on.ADT.title
+                            };
+                            routesInfo.push(routeDetails);
+                        }
+                    }
+                }
+                mc.setProperty("extractedRoutes", JSON.stringify(routesInfo));
+                ]]>
+            </script>
+            <payloadFactory media-type="json">
+                <format>$1</format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('extractedRoutes')"/>
+                </args>
+            </payloadFactory>
+            <respond/>
+        </inSequence>
+    </resource>
+</api>

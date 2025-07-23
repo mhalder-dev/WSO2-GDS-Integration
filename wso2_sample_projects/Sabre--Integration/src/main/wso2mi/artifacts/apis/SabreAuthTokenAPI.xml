@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<api context="/get-sabre-token" name="SabreAuthTokenAPI" xmlns="http://ws.apache.org/ns/synapse">
+    <resource methods="POST">
+        <inSequence>
+            <!-- Save the incoming payload -->
+            <property expression="json-eval($)" name="originalPayload" scope="default" type="STRING"/>
+            <!-- Call the Token Service -->
+            <call>
+                <endpoint>
+                    <address uri="http://localhost:8290/services/SabreAuthTokenProxy">
+                        <suspendOnFailure>
+                            <initialDuration>-1</initialDuration>
+                            <progressionFactor>1</progressionFactor>
+                        </suspendOnFailure>
+                        <markForSuspension>
+                            <retriesBeforeSuspension>0</retriesBeforeSuspension>
+                        </markForSuspension>
+                    </address>
+                </endpoint>
+            </call>
+            <!-- Append original payload to the response from token service -->
+            <enrich>
+                <source clone="true" type="body"/>
+                <target property="responseBody" type="property"/>
+            </enrich>
+            <payloadFactory media-type="json">
+                <format>{
+                    "token": "$1",
+                    "originalPayload": $2
+                }</format>
+                <args>
+                    <arg evaluator="json" expression="$.access_token"/>
+                    <arg evaluator="xml" expression="get-property('originalPayload')"/>
+                </args>
+            </payloadFactory>
+            <!-- Set the content type to JSON -->
+            <property name="messageType" scope="axis2" type="STRING" value="application/json"/>
+            <!-- Call the Flight Search Service -->
+            <call>
+                <endpoint>
+                    <address uri="http://localhost:8290/services/SabreFlightSearchProxy">
+                        <suspendOnFailure>
+                            <initialDuration>-1</initialDuration>
+                            <progressionFactor>1</progressionFactor>
+                        </suspendOnFailure>
+                        <markForSuspension>
+                            <retriesBeforeSuspension>0</retriesBeforeSuspension>
+                        </markForSuspension>
+                    </address>
+                </endpoint>
+            </call>
+            <respond/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence/>
+    </resource>
+</api>

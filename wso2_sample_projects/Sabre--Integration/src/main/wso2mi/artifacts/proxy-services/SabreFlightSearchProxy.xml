@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<proxy name="SabreFlightSearchProxy" startOnLoad="true" transports="http https" xmlns="http://ws.apache.org/ns/synapse">
+    <target>
+        <inSequence>
+            <!-- Extract properties from the enriched payload -->
+            <property expression="json-eval($.token)" name="access_token" scope="default" type="STRING"/>
+            <property expression="json-eval($.originalPayload)" name="originalPayload" scope="default" type="STRING"/>
+            <property expression="json-eval($.originalPayload.departureDate)" name="departureDate" scope="default" type="STRING"/>
+            <property expression="fn:concat(get-property('departureDate'), 'T00:00:00')" name="formattedDepartureDate" scope="default" type="STRING"/>
+            <!-- Construct the new payload merging originalPayload and new data -->
+            <payloadFactory media-type="json">
+                <format>{
+                    "OTA_AirLowFareSearchRQ": {
+                    "Version": "5",
+                    "AvailableFlightsOnly": true,
+                    "POS": {
+                    "Source": [
+                    {
+                    "PseudoCityCode": "AO0L",
+                    "RequestorID": {
+                    "Type": "1",
+                    "ID": "1",
+                    "CompanyName": {
+                    "Code": "TN"
+                    }
+                    }
+                    }
+                    ]
+                    },
+                    "OriginDestinationInformation": [
+                    {
+                    "RPH": "1",
+                    "DepartureDateTime": "$1",
+                    "OriginLocation": {
+                    "LocationType": "A",
+                    "LocationCode": "$2"
+                    },
+                    "DestinationLocation": {
+                    "LocationType": "A",
+                    "LocationCode": "$3"
+                    },
+                    "TPA_Extensions": {
+                    "CabinPref": {
+                    "Cabin": "Y",
+                    "PreferLevel": "Preferred"
+                    }
+                    }
+                    }
+                    ],
+                    "TravelPreferences": {
+                    "MaxStopsQuantity": 2,
+                    "ETicketDesired": true,
+                    "Baggage": {
+                    "CarryOnInfo": true
+                    },
+                    "TPA_Extensions": {
+                    "NumTrips": {
+                    "Number": 50
+                    },
+                    "DataSources": {
+                    "NDC": "Disable",
+                    "ATPCO": "Enable",
+                    "LCC": "Enable"
+                    }
+                    }
+                    },
+                    "TravelerInfoSummary": {
+                    "SeatsRequested": [1],
+                    "AirTravelerAvail": [
+                    {
+                    "PassengerTypeQuantity": [
+                    {
+                    "Code": "ADT",
+                    "Quantity": 1
+                    }
+                    ]
+                    }
+                    ],
+                    "PriceRequestInformation": {
+                    "TPA_Extensions": {
+                    "PublicFare": {
+                    "Ind": false
+                    },
+                    "Priority": {
+                    "Price": {
+                    "Priority": 1
+                    },
+                    "DirectFlights": {
+                    "Priority": 2
+                    },
+                    "Time": {
+                    "Priority": 3
+                    },
+                    "Vendor": {
+                    "Priority": 4
+                    }
+                    }
+                    },
+                    "CurrencyCode": "BDT"
+                    }
+                    },
+                    "TPA_Extensions": {
+                    "IntelliSellTransaction": {
+                    "RequestType": {
+                    "Name": "50ITINS"
+                    }
+                    }
+                    }
+                    }
+                    }
+                </format>
+                <args>
+                    <arg evaluator="xml" expression="get-property('formattedDepartureDate')"/>
+                    <arg evaluator="json" expression="$.originalPayload.originLocation"/>
+                    <arg evaluator="json" expression="$.originalPayload.destinationLocation"/>
+                </args>
+            </payloadFactory>
+            <!-- Set Headers for the API Call -->
+            <header name="Content-Type" scope="transport" value="application/json"/>
+            <header expression="fn:concat('Bearer ', get-property('access_token'))" name="Authorization" scope="transport"/>
+            <header name="X-Sabre-Enable-Experimental-Cache-Bypass" scope="transport" value="true"/>
+            <header name="cache-control" scope="transport" value="no-cache"/>
+            <!-- Call the Sabre API -->
+            <call>
+                <endpoint>
+                    <http method="post" uri-template="https://api.cert.platform.sabre.com/v5/offers/shop">
+                        <suspendOnFailure>
+                            <initialDuration>-1</initialDuration>
+                            <progressionFactor>1</progressionFactor>
+                        </suspendOnFailure>
+                        <markForSuspension>
+                            <retriesBeforeSuspension>0</retriesBeforeSuspension>
+                        </markForSuspension>
+                    </http>
+                </endpoint>
+            </call>
+            <respond/>
+        </inSequence>
+        <outSequence/>
+        <faultSequence/>
+    </target>
+</proxy>

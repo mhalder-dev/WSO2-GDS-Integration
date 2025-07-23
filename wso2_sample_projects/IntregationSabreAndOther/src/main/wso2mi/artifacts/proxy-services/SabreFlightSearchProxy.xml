@@ -1,0 +1,521 @@
+<proxy xmlns="http://ws.apache.org/ns/synapse" name="SabreFlightSearchProxy" startOnLoad="true" trace="disable" transports="http https">
+    <target>
+        <inSequence>
+            <!-- Extract properties from the enriched payload -->
+            <property name="access_token" expression="json-eval($.token)" scope="default"/>
+            <property name="originalPayload" expression="json-eval($.originalPayload)" scope="default"/>
+            <property name="departureDate" expression="json-eval($.originalPayload.departureDate)" scope="default"/>
+            <property name="formattedDepartureDate" expression="fn:concat(get-property('departureDate'), 'T00:00:00')" scope="default"/>
+            <!-- Construct the new payload merging originalPayload and new data -->
+            <payloadFactory media-type="json" template-type="default">
+                <format>{
+                    "OTA_AirLowFareSearchRQ": {
+                    "Version": "5",
+                    "AvailableFlightsOnly": true,
+                    "POS": {
+                    "Source": [
+                    {
+                    "PseudoCityCode": "AO0L",
+                    "RequestorID": {
+                    "Type": "1",
+                    "ID": "1",
+                    "CompanyName": {
+                    "Code": "TN"
+                    }
+                    }
+                    }
+                    ]
+                    },
+                    "OriginDestinationInformation": [
+                    {
+                    "RPH": "1",
+                    "DepartureDateTime": "$1",
+                    "OriginLocation": {
+                    "LocationType": "A",
+                    "LocationCode": "$2"
+                    },
+                    "DestinationLocation": {
+                    "LocationType": "A",
+                    "LocationCode": "$3"
+                    },
+                    "TPA_Extensions": {
+                    "CabinPref": {
+                    "Cabin": "Y",
+                    "PreferLevel": "Preferred"
+                    }
+                    }
+                    }
+                    ],
+                    "TravelPreferences": {
+                    "MaxStopsQuantity": 2,
+                    "ETicketDesired": true,
+                    "Baggage": {
+                    "CarryOnInfo": true
+                    },
+                    "TPA_Extensions": {
+                    "NumTrips": {
+                    "Number": 50
+                    },
+                    "DataSources": {
+                    "NDC": "Disable",
+                    "ATPCO": "Enable",
+                    "LCC": "Enable"
+                    }
+                    }
+                    },
+                    "TravelerInfoSummary": {
+                    "SeatsRequested": [1],
+                    "AirTravelerAvail": [
+                    {
+                    "PassengerTypeQuantity": [
+                    {
+                    "Code": "ADT",
+                    "Quantity": 1
+                    }
+                    ]
+                    }
+                    ],
+                    "PriceRequestInformation": {
+                    "TPA_Extensions": {
+                    "PublicFare": {
+                    "Ind": false
+                    },
+                    "Priority": {
+                    "Price": {
+                    "Priority": 1
+                    },
+                    "DirectFlights": {
+                    "Priority": 2
+                    },
+                    "Time": {
+                    "Priority": 3
+                    },
+                    "Vendor": {
+                    "Priority": 4
+                    }
+                    }
+                    },
+                    "CurrencyCode": "BDT"
+                    }
+                    },
+                    "TPA_Extensions": {
+                    "IntelliSellTransaction": {
+                    "RequestType": {
+                    "Name": "50ITINS"
+                    }
+                    }
+                    }
+                    }
+                    }
+                </format>
+                <args>
+                    <arg expression="get-property('formattedDepartureDate')" evaluator="xml"/>
+                    <arg expression="json-eval($.originalPayload.originLocation)" evaluator="json"/>
+                    <arg expression="json-eval($.originalPayload.destinationLocation)" evaluator="json"/>
+                </args>
+            </payloadFactory>
+            <!-- Set Headers for the API Call -->
+            <header name="Content-Type" scope="transport" value="application/json"/>
+            <header name="Authorization" expression="fn:concat('Bearer ', get-property('access_token'))" scope="transport"/>
+            <header name="X-Sabre-Enable-Experimental-Cache-Bypass" scope="transport" value="true"/>
+            <header name="cache-control" scope="transport" value="no-cache"/>
+            <!-- Call the Sabre API -->
+            <call>
+                <endpoint>
+                    <http method="POST" uri-template="https://api.cert.platform.sabre.com/v5/offers/shop"/>
+                </endpoint>
+            </call>
+            <!-- <property name="ScheduleDescs" expression="json-eval($.groupedItineraryResponse.scheduleDescs)" scope="default"/>
+         
+            <property name="scheduleData" value="[" scope="default"/>
+            
+            <foreach expression="json-eval($.groupedItineraryResponse.scheduleDescs)">
+                <sequence>
+                 
+                    <property name="ScheduleID" expression="json-eval($.id)" scope="default"/>
+                    <property name="ScheduleItem" expression="json-eval($.)" scope="default"/>
+                    
+                    <payloadFactory media-type="json">
+                        <format>
+                            {
+                            "id": "$1",
+                            "data": $2
+                            }
+                        </format>
+                        <args>
+                            <arg expression="get-property('ScheduleID')"/>
+                            <arg expression="get-property('ScheduleItem')"/>
+                        </args>
+                    </payloadFactory>
+                    
+                    <property name="scheduleEntry" expression="json-eval($.)" scope="default"/>
+                    
+                    <filter source="string-length(get-property('scheduleData'))" regex="^1$">
+                        <then>
+                            <property name="scheduleData" expression="fn:concat(get-property('scheduleData'), get-property('scheduleEntry'))" scope="default"/>
+                        </then>
+                        <else>
+                            <property name="scheduleData" expression="fn:concat(get-property('scheduleData'), ',', get-property('scheduleEntry'))" scope="default"/>
+                        </else>
+                    </filter>
+                </sequence>
+            </foreach> -->
+            <!-- Close the JSON array -->
+            <!-- <property name="scheduleData" expression="fn:concat(get-property('scheduleData'), ']')" scope="default"/> -->
+            <!-- Log the final processed scheduleData -->
+            <!-- Initialize tracking ID and counters -->
+            <property name="groupedItineraryResponse" expression="json-eval($.)" scope="default"/>
+            <script language="js"><![CDATA[function generateUUID() {
+        var dt = new Date().getTime();
+        var uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = (dt + Math.random()*16)%16 | 0;
+            dt = Math.floor(dt/16);
+            return (c=='x' ? r :(r&0x3|0x8)).toString(16);
+        });
+        return uuid;
+    }
+    // Example usage of generateUUID()
+    var tracking_id_counter = generateUUID();
+    var flight_key_counter = 0;
+    var scheduleDescs = mc.getProperty('groupedItineraryResponse.scheduleDescs') || [];
+    var scheduleData = {};
+    // Convert scheduleDescs into scheduleData
+    for (var i = 0; i < scheduleDescs.length; i++) {
+        var schedule = scheduleDescs[i];
+        scheduleData[schedule.id] = schedule;
+    }
+    // Prepare leg descriptions
+    var legsData_temp = mc.getProperty('groupedItineraryResponse.legDescs') || [];
+    var legsData = {};
+    // Convert legsData_temp into legsData
+    for (var j = 0; j < legsData_temp.length; j++) {
+        var row = legsData_temp[j];
+        legsData[row.id] = row;
+        // Link each schedule to the appropriate leg
+        for (var k = 0; k < row.schedules.length; k++) {
+            var scheduleObj = row.schedules[k];
+            var ref = scheduleObj.ref;
+            if (scheduleData.hasOwnProperty(ref)) {
+                // Ensure .schedules object is defined
+                if (!legsData[row.id].schedules) {
+                    legsData[row.id].schedules = {};
+                }
+                legsData[row.id].schedules[ref] = scheduleData[ref];
+            }
+        }
+    }
+    // Prepare fare component descriptions
+    var fareComponentDescs = mc.getProperty('groupedItineraryResponse.fareComponentDescs') || [];
+    var fareComponentsData = {};
+    for (var x = 0; x < fareComponentDescs.length; x++) {
+        var fareComp = fareComponentDescs[x];
+        fareComponentsData[fareComp.id] = fareComp;
+    }
+    // Prepare baggage allowance descriptions
+    var baggageAllowanceDescs = mc.getProperty('groupedItineraryResponse.baggageAllowanceDescs') || [];
+    var baggageAllowanceData = {};
+    for (var y = 0; y < baggageAllowanceDescs.length; y++) {
+        var baggageAllowance = baggageAllowanceDescs[y];
+        baggageAllowanceData[baggageAllowance.id] = baggageAllowance;
+    }
+    // ------------------------------------------------------------------------
+    // 2) Process Itinerary Groups
+    // ------------------------------------------------------------------------
+    var itineraryGroups = mc.getProperty('groupedItineraryResponse.itineraryGroups') || [];
+    var itineraries = [];
+    for (var g = 0; g < itineraryGroups.length; g++) {
+        var group = itineraryGroups[g];
+        var groupDescription = group.groupDescription || null;
+        var legDescriptions = [];
+        // If groupDescription exists, build legDescriptions
+        if (groupDescription && groupDescription.legDescriptions) {
+            for (var h = 0; h < groupDescription.legDescriptions.length; h++) {
+                var legDesc = groupDescription.legDescriptions[h];
+                legDescriptions.push({
+                    "departureDate": legDesc.departureDate || 'N/A',
+                    "departureLocation": legDesc.departureLocation || 'N/A',
+                    "arrivalLocation": legDesc.arrivalLocation || 'N/A'
+                });
+            }
+        }
+        // Loop through itineraries
+        for (var itn = 0; itn < group.itineraries.length; itn++) {
+            var itinerary = group.itineraries[itn];
+            // Link legs
+            for (var l = 0; l < itinerary.legs.length; l++) {
+                var leg = itinerary.legs[l];
+                if (legsData.hasOwnProperty(leg.ref)) {
+                    itinerary.legs[l] = legsData[leg.ref];
+                } else {
+                    log.error("Leg reference not found: " + leg.ref);
+                    continue;
+                }
+            }
+            // Process fare & baggage data
+            for (var p = 0; p < itinerary.pricingInformation.length; p++) {
+                var pricingInfo = itinerary.pricingInformation[p];
+                for (var pass = 0; pass < pricingInfo.fare.passengerInfoList.length; pass++) {
+                    var passengerInfo = pricingInfo.fare.passengerInfoList[pass];
+                    var newFareComponents = {};
+                    // Prepare fare components
+                    for (var fc = 0; fc < passengerInfo.passengerInfo.fareComponents.length; fc++) {
+                        var fareComponentObj = passengerInfo.passengerInfo.fareComponents[fc];
+                        var ref = fareComponentObj.ref;
+                        if (fareComponentsData.hasOwnProperty(ref)) {
+                            newFareComponents[ref] = Object.assign({}, fareComponentsData[ref], fareComponentObj);
+                        } else {
+                            log.error("Fare component reference not found: " + ref);
+                            newFareComponents[ref] = { "ref": ref };
+                        }
+                    }
+                    // Inject baggage allowance
+                    for (var b = 0; b < passengerInfo.passengerInfo.baggageInformation.length; b++) {
+                        var baggageInfo = passengerInfo.passengerInfo.baggageInformation[b];
+                        var Segments = [];
+                        var baggageSegmentIds = baggageInfo.segments.map(function(seg) { return seg.id; });
+                        for (var fc2 = 0; fc2 < passengerInfo.passengerInfo.fareComponents.length; fc2++) {
+                            var fareCompObj2 = passengerInfo.passengerInfo.fareComponents[fc2];
+                            for (var s = 0; s < fareCompObj2.segments.length; s++) {
+                                var fareSegment = fareCompObj2.segments[s];
+                                if (baggageSegmentIds.includes(fareSegment.id)) {
+                                    Segments.push({
+                                        "bookingCode": fareSegment.segment.bookingCode || null,
+                                        "cabinCode": fareSegment.segment.cabinCode || null,
+                                        "mealCode": fareSegment.segment.mealCode || null,
+                                        "seatsAvailable": fareSegment.segment.seatsAvailable || null
+                                    });
+                                }
+                            }
+                        }
+                        baggageInfo.Segments = Segments;
+                        delete baggageInfo.segments;
+                        var allowanceRef = baggageInfo.allowance ? baggageInfo.allowance.ref : null;
+                        if (allowanceRef && baggageAllowanceData.hasOwnProperty(allowanceRef)) {
+                            baggageInfo.allowance = baggageAllowanceData[allowanceRef];
+                        }
+                        var chargeRef = baggageInfo.charge ? baggageInfo.charge.ref : null;
+                        if (chargeRef && baggageAllowanceData.hasOwnProperty(chargeRef)) {
+                            baggageInfo.charge = baggageAllowanceData[chargeRef];
+                        }
+                    }
+                    passengerInfo.passengerInfo.fareComponents = newFareComponents;
+                }
+            }
+            // Add legDescriptions to each itinerary
+            itinerary.legDescriptions = legDescriptions;
+            itineraries.push(itinerary);
+        }
+    }
+    // ------------------------------------------------------------------------
+    // 3) Handle Empty Itineraries & Build final_data
+    // ------------------------------------------------------------------------
+    if (itineraries.length === 0) {
+        mc.setProperty('HTTP_SC', 400);
+        mc.setPayloadJSON({
+            "status": "error",
+            "message": "No itineraries available for processing"
+        });
+    }
+    var final_data = {
+        "status": "success",
+        "tracking_id": tracking_id_counter,
+        "total_fight": itineraries.length,
+        "currency": "BDT",
+        "resources": {
+            "base_url": {
+                "carrier": "https://gtrs-airlineimages.s3.ap-southeast-1.amazonaws.com/icon",
+                "aircraft": "https://gtrs-airlineimages.s3.ap-southeast-1.amazonaws.com/aircraft"
+            }
+        },
+        "data": []
+    };
+    // ------------------------------------------------------------------------
+    // 4) Build Flight Data, Routes & Pricing
+    // ------------------------------------------------------------------------
+    for (var iItin = 0; iItin < itineraries.length; iItin++) {
+        var itinerary = itineraries[iItin];
+        var flight_group = [];
+        var current_flight_key = "F1SE00011-" + flight_key_counter;
+        flight_key_counter++;
+        var air_segment_counter = 0;
+        for (var legsIndex = 0; legsIndex < itinerary.legs.length; legsIndex++) {
+            var legs = itinerary.legs[legsIndex];
+            var legDescription = itinerary.legDescriptions[legsIndex] || null;
+            if (!legDescription) {
+                log.error("Leg description missing for index: " + legsIndex);
+                continue;  // Skip this leg if no matching legDescription is found
+            }
+            flight_group.push({
+                "group": 1,
+                "flight_key": current_flight_key,
+                "no_of_stops_title": (legs.schedules || []).length + " Stop Flight",
+                "no_of_stops": (legs.schedules || []).length,
+                "flight_time": "PT3H40M",
+                "transit_time": "PT6H30M",
+                "routes": []
+            });
+            for (var sIndex = 0; sIndex < (legs.schedules || []).length; sIndex++) {
+                var leg = legs.schedules[sIndex];
+                if (!leg.departure || !leg.arrival) {
+                    log.error("Incomplete schedule data for leg: " + JSON.stringify(leg));
+                    continue;
+                }
+                // Booking class extraction
+                var bookingClassIndex = 0;
+                var bookingClassSegments = [];
+                // Extract booking class data from fareComponents
+                if (itinerary.pricingInformation) {
+                    for (var p = 0; p < itinerary.pricingInformation.length; p++) {
+                        var pricingInfo = itinerary.pricingInformation[p];
+                        for (var pass = 0; pass < pricingInfo.fare.passengerInfoList.length; pass++) {
+                            var passengerInfo = pricingInfo.fare.passengerInfoList[pass];
+                            for (var fc = 0; fc < passengerInfo.passengerInfo.fareComponents.length; fc++) {
+                                var fareComponent = passengerInfo.passengerInfo.fareComponents[fc];
+                                for (var seg = 0; seg < fareComponent.segments.length; seg++) {
+                                    var segmentData = fareComponent.segments[seg].segment;
+                                    bookingClassSegments.push(segmentData);
+                                }
+                            }
+                        }
+                    }
+                }
+                var segmentData = bookingClassSegments[bookingClassIndex] || null;
+                var booking_class = null;
+                if (segmentData) {
+                    var bookingCode = segmentData.bookingCode || null;
+                    var cabinCode = segmentData.cabinCode || null;
+                    var mealCode = segmentData.mealCode || null;
+                    var seatsAvailable = segmentData.seatsAvailable || null;
+                    var cabinClassMapping = {
+                        'Y': 'Economy',
+                        'W': 'Premium Economy',
+                        'C': 'Business',
+                        'F': 'First'
+                    };
+                    var cabin_class = cabinClassMapping[cabinCode] || 'Unknown';
+                    booking_class = {
+                        "cabin_class": cabin_class,
+                        "cabin_code": cabinCode,
+                        "booking_code": bookingCode,
+                        "meal_code": mealCode,
+                        "seat_available": seatsAvailable
+                    };
+                }
+                // Baggage data omitted for brevity (already done above?), or re-apply logic here
+                var baggages = {
+                    "checked": {},
+                    "carry_on": {}
+                };
+                // Build the flight route
+                var origin = legDescription.departureLocation || 'N/A';
+                var destination = legDescription.arrivalLocation || 'N/A';
+                var departure_date = legDescription.departureDate || 'N/A';
+                flight_group[flight_group.length - 1].routes.push({
+                    "air_segment_key": "0-" + air_segment_counter,
+                    "fareBasisCode": "FAREBASIS_EXAMPLE", // or from your code
+                    "origin": origin,
+                    "departure_date": departure_date,
+                    "departure_time": leg.departure.time || 'N/A',
+                    "origin_terminal": leg.departure.terminal || 'N/A',
+                    "origin_airport": {
+                        "name": leg.departure.airport || 'N/A',
+                        "city": leg.departure.city || 'N/A',
+                        "country": leg.departure.country || 'N/A',
+                        "timezone": "Asia/Dhaka"
+                    },
+                    "destination": destination,
+                    "arrival_time": leg.arrival.time || 'N/A',
+                    "destination_terminal": leg.arrival.terminal || null,
+                    "destination_airport": {
+                        "name": leg.arrival.airport || 'N/A',
+                        "city": leg.arrival.city || 'N/A',
+                        "country": leg.arrival.country || 'N/A',
+                        "timezone": "Asia/Bangkok"
+                    },
+                    "aircraft": {
+                        "code": (leg.carrier && leg.carrier.equipment && leg.carrier.equipment.code) || 'N/A',
+                        "name": (leg.carrier && leg.carrier.equipment && leg.carrier.equipment.code) || 'N/A',
+                        "picture": ((leg.carrier && leg.carrier.equipment && leg.carrier.equipment.code) || 'default') + ".png"
+                    },
+                    "operating": {
+                        "carrier": (leg.carrier && leg.carrier.operating) || 'N/A',
+                        "carrier_name": "Thai Airways",
+                        "carrier_logo": ((leg.carrier && leg.carrier.operating) || 'N/A') + ".png",
+                        "flight_number": (leg.carrier && leg.carrier.operatingFlightNumber) || 'N/A'
+                    },
+                    "marketing": {
+                        "carrier": (leg.carrier && leg.carrier.marketing) || 'N/A',
+                        "carrier_name": "Thai Airways",
+                        "carrier_logo": ((leg.carrier && leg.carrier.marketing) || 'N/A') + ".png",
+                        "flight_number": (leg.carrier && leg.carrier.marketingFlightNumber) || 'N/A'
+                    },
+                    "booking_class": booking_class,
+                    "baggages": baggages
+                });
+                bookingClassIndex++;
+                air_segment_counter++;
+            }
+        }
+        // Build price info
+        var price_info = itinerary.pricingInformation[0].fare.totalFare;
+        var price = {
+            "currency": price_info.currency || 'BDT',
+            "total": price_info.totalPrice || 0,
+            "base_fare": (price_info.totalPrice - price_info.totalTaxAmount) || 0,
+            "tax": price_info.totalTaxAmount || 0
+        };
+        var price_breakdown = [];
+        var passInfoList = itinerary.pricingInformation[0].fare.passengerInfoList;
+        for (var passIndex = 0; passIndex < passInfoList.length; passIndex++) {
+            var passengerInfo = passInfoList[passIndex];
+            var passengerType = passengerInfo.passengerInfo.passengerType;
+            var passengerTotalFare = passengerInfo.passengerInfo.passengerTotalFare;
+            var currencyExchangeRate = passengerInfo.passengerInfo.currencyConversion.exchangeRateUsed;
+            var currencyFrom = passengerInfo.passengerInfo.currencyConversion.from;
+            price_breakdown.push({
+                "passenger_id": passIndex,
+                "passenger_type": passengerType,
+                "primary_ptc": passengerType,
+                "ptc_title": passengerType === 'ADT' ? 'Adult'
+                             : (passengerType === 'CNN' ? 'Child' : 'Infant'),
+                "passenger_total": passengerInfo.passengerInfo.passengerNumber,
+                "currency": passengerTotalFare.currency || 'BDT',
+                "total": passengerTotalFare.totalFare ? passengerTotalFare.totalFare.toFixed(2) : "0.00",
+                "base_fare": ((passengerTotalFare.totalFare - passengerTotalFare.totalTaxAmount) || 0).toFixed(2),
+                "tax": passengerTotalFare.totalTaxAmount ? passengerTotalFare.totalTaxAmount.toFixed(2) : "0.00",
+                "view_gross": {
+                    "currency": currencyFrom,
+                    "total": (passengerTotalFare.totalFare / currencyExchangeRate).toFixed(2),
+                    "base_fare": passengerTotalFare.baseFareAmount.toFixed(2),
+                    "tax": (passengerTotalFare.totalTaxAmount / currencyExchangeRate).toFixed(2)
+                }
+            });
+        }
+        final_data.data.push({
+            "tracking_id": tracking_id_counter,
+            "flight_key": current_flight_key,
+            "journey_type": (typeof isMultiCity !== 'undefined' && isMultiCity) ? "MultiCity"
+                           : ((typeof isRoundTrip !== 'undefined' && isRoundTrip) ? "RoundTrip" : "OneWay"),
+            "result_type": "general",
+            "get_branded_fare": "no",
+            "hold_possible": "yes",
+            "supplier_title": "Sabre OneAgent",
+            "supplier_code": "sabre",
+            "supplier_uid": current_flight_key,
+            "supplier_partner_code": "sabre-1-" + flight_key_counter,
+            "info_message": null,
+            "flight_group": flight_group,
+            "price": Object.assign(price, { "price_breakdown": price_breakdown })
+        });
+        tracking_id_counter++;
+    }
+    // ------------------------------------------------------------------------
+    // 5) Output Final JSON
+    // ------------------------------------------------------------------------
+    var json_output = JSON.stringify(final_data, null, 4);
+    mc.setPayloadJSON(json_output);
+               ]]></script>
+            <respond/>
+        </inSequence>
+    </target>
+</proxy>

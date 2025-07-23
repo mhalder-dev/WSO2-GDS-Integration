@@ -1,0 +1,2 @@
+<!-- Generate a Unique Tracking ID -->
+<property name="tracking_id_counter" expression="generateUUID()" scope="default" type="STRING"/>

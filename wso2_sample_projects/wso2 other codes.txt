@@ -1,0 +1,146 @@
+ <!-- <property name="ScheduleDescs" expression="json-eval($.groupedItineraryResponse.scheduleDescs)" scope="default"/>
+         
+            <property name="scheduleData" value="[" scope="default"/>
+            
+            <foreach expression="json-eval($.groupedItineraryResponse.scheduleDescs)">
+                <sequence>
+                 
+                    <property name="ScheduleID" expression="json-eval($.id)" scope="default"/>
+                    <property name="ScheduleItem" expression="json-eval($.)" scope="default"/>
+                    
+                    <payloadFactory media-type="json">
+                        <format>
+                            {
+                            "id": "$1",
+                            "data": $2
+                            }
+                        </format>
+                        <args>
+                            <arg expression="get-property('ScheduleID')"/>
+                            <arg expression="get-property('ScheduleItem')"/>
+                        </args>
+                    </payloadFactory>
+                    
+                    <property name="scheduleEntry" expression="json-eval($.)" scope="default"/>
+                    
+                    <filter source="string-length(get-property('scheduleData'))" regex="^1$">
+                        <then>
+                            <property name="scheduleData" expression="fn:concat(get-property('scheduleData'), get-property('scheduleEntry'))" scope="default"/>
+                        </then>
+                        <else>
+                            <property name="scheduleData" expression="fn:concat(get-property('scheduleData'), ',', get-property('scheduleEntry'))" scope="default"/>
+                        </else>
+                    </filter>
+                </sequence>
+            </foreach> -->
+            <!-- Close the JSON array -->
+            <!-- <property name="scheduleData" expression="fn:concat(get-property('scheduleData'), ']')" scope="default"/> -->
+            <!-- Log the final processed scheduleData -->
+            <!-- Initialize tracking ID and counters -->
+            <property expression="json-eval($)" name="groupedItineraryResponse" scope="default" type="STRING"/>
+            <property expression="json-eval($.groupedItineraryResponse.scheduleDescs)" name="scheduleDescsMain" scope="default" type="STRING"/>
+            <property expression="json-eval($.groupedItineraryResponse.legDescs)" name="legsMain" scope="default" type="STRING"/>
+            <property expression="json-eval($.groupedItineraryResponse.fareComponentDescs)" name="fareComponentDescsMain" scope="default" type="STRING"/>
+            <property expression="json-eval($.groupedItineraryResponse.baggageAllowanceDescs)" name="baggageAllowanceDescsMain" scope="default" type="STRING"/>
+            <script language="js"><![CDATA[function generateUUID() {
+       var dt = new Date().getTime();
+       var uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+           var r = (dt + Math.random() * 16) % 16 | 0;
+           dt = Math.floor(dt / 16);
+           return (c == 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+       });
+       return uuid;
+   }
+
+       var scheduleDescs = JSON.parse(mc.getProperty('scheduleDescsMain')) || [];
+       var scheduleData = {}; // Change from array to object
+
+      // Populate scheduleData as an object with id as key
+      for (var i = 0; i < scheduleDescs.length; i++) {
+         var schedule = scheduleDescs[i];
+         scheduleData[schedule.id] = schedule; // Store with ID as key
+        }
+
+          // Log the result for debugging
+        mc.setProperty("LOG_SCHEDULE_DATA", JSON.stringify(scheduleData["1"]));
+
+       // Prepare leg descriptions
+    
+
+ var legsData_temp = JSON.parse(mc.getProperty('legsMain')) || [];
+var legsData = {};
+
+// Convert legsData_temp into legsData
+for (var j = 0; j < legsData_temp.length; j++) {
+    var row = legsData_temp[j];
+    legsData[row.id] = row;
+
+    // Ensure schedules exist in each leg to avoid undefined errors
+    if (!row.schedules || !Array.isArray(row.schedules)) {
+        legsData[row.id].schedules = {}; // Initialize if missing
+        continue; // Skip processing this leg if schedules are missing
+    }
+
+    // Link each schedule to the appropriate leg
+    for (var k = 0; k < row.schedules.length; k++) {
+        var scheduleObj = row.schedules[k];
+
+        // Check if scheduleObj exists and has a "ref" property
+        if (!scheduleObj || !scheduleObj.hasOwnProperty("ref")) {
+            continue; // Skip if ref is missing
+        }
+
+        var ref = scheduleObj.ref;
+
+        if (scheduleData.hasOwnProperty(ref)) {
+            // Ensure .schedules object is defined before assignment
+            if (!legsData[row.id].schedules) {
+                legsData[row.id].schedules = {};
+            }
+            legsData[row.id].schedules[ref] = scheduleData[ref];
+        }
+    }
+}
+
+// Logging for debugging
+mc.setProperty("LOG_LEG_DATA", JSON.stringify(legsData));
+
+
+var fareComponentDescs = JSON.parse(mc.getProperty('fareComponentDescsMain')) || [];
+var fareComponentsData = {};
+
+// Convert fareComponentDescs into a key-value object
+for (var i = 0; i < fareComponentDescs.length; i++) {
+    var fareComponent = fareComponentDescs[i];
+    fareComponentsData[fareComponent.id] = fareComponent; // Store with ID as key
+}
+
+
+
+// Log first fare component for debugging
+mc.setProperty("LOG_FARE_COMPONENT", JSON.stringify(fareComponentsData));
+
+
+
+
+// Parse baggage allowance descriptions from property
+var baggageAllowanceDescs = JSON.parse(mc.getProperty('baggageAllowanceDescsMain')) || [];
+var baggageAllowanceData = {};
+
+// Convert baggageAllowanceDescs into a key-value object
+for (var i = 0; i < baggageAllowanceDescs.length; i++) {
+    var baggageAllowance = baggageAllowanceDescs[i];
+    baggageAllowanceData[baggageAllowance.id] = baggageAllowance; // Store with ID as key
+}
+
+
+
+// Log first baggage allowance for debugging
+mc.setProperty("LOG_BAGGAGE_ALLOWANCE", JSON.stringify(baggageAllowanceData));]]></script>
+           
+            <log level="custom">
+                <property expression="get-property('LOG_SCHEDULE_DATA')" name="LOG_SCHEDULE"/>
+                <property expression="get-property('LOG_LEG_DATA')" name="LOG_LEG"/>
+                <property expression="get-property('LOG_FARE_COMPONENT')" name="LOG_FARE"/>
+                <property expression="get-property('LOG_BAGGAGE_ALLOWANCE')" name="LOG_BAGGAGE"/>
+            </log>
